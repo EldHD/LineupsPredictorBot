@@ -42,6 +42,15 @@ class TransfermarktScraper:
         chrome_options.add_argument("--disable-renderer-backgrounding")
         chrome_options.add_argument("--disable-ipc-flooding-protection")
         chrome_options.add_argument("--remote-debugging-port=0")
+        chrome_options.add_argument("--disable-logging")
+        chrome_options.add_argument("--disable-gpu-logging")
+        chrome_options.add_argument("--silent")
+        chrome_options.add_argument("--log-level=3")
+        chrome_options.add_argument("--disable-crash-reporter")
+        chrome_options.add_argument("--disable-in-process-stack-traces")
+        chrome_options.add_argument("--disable-dev-tools")
+        chrome_options.add_argument("--no-zygote")
+        chrome_options.add_argument("--disable-software-rasterizer")
         chrome_options.add_argument(f"--user-agent={self.headers['User-Agent']}")
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -50,12 +59,13 @@ class TransfermarktScraper:
         try:
             from selenium.webdriver.chrome.service import Service
             service = Service()
+            service.log_path = "/dev/null"
             driver = webdriver.Chrome(service=service, options=chrome_options)
         except:
             driver = webdriver.Chrome(options=chrome_options)
         
-        driver.set_page_load_timeout(20)
-        driver.implicitly_wait(5)
+        driver.set_page_load_timeout(15)
+        driver.implicitly_wait(3)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         return driver
     

@@ -21,7 +21,7 @@ class DataScheduler:
         self.scheduler_thread = None
     
     def start_scheduler(self):
-        """Start the data update scheduler"""
+        """Start the data update scheduler with immediate updates (legacy method)"""
         if self.running:
             logger.warning("Scheduler is already running")
             return
@@ -38,6 +38,34 @@ class DataScheduler:
         self.scheduler_thread.start()
         
         logger.info(f"Data scheduler started - updates every {UPDATE_INTERVAL_HOURS} hours")
+    
+    def start_scheduler_deferred(self):
+        """Start the data update scheduler without blocking initial updates"""
+        if self.running:
+            logger.warning("Scheduler is already running")
+            return
+        
+        self.running = True
+        
+        schedule.every(1).hours.do(self.update_matches_only)
+        schedule.every(UPDATE_INTERVAL_HOURS).hours.do(self.update_all_data)
+        
+        self.scheduler_thread = threading.Thread(target=self._run_scheduler, daemon=True)
+        self.scheduler_thread.start()
+        
+        def delayed_initial_update():
+            time.sleep(30)
+            try:
+                logger.info("🔄 Running delayed initial data update...")
+                self.update_matches_only()
+                logger.info("✅ Delayed initial data update completed")
+            except Exception as e:
+                logger.error(f"❌ Delayed initial data update failed: {e}")
+        
+        initial_update_thread = threading.Thread(target=delayed_initial_update, daemon=True)
+        initial_update_thread.start()
+        
+        logger.info(f"Data scheduler started in deferred mode - initial update in 30s, then every {UPDATE_INTERVAL_HOURS} hours")
     
     def stop_scheduler(self):
         """Stop the data update scheduler"""
@@ -138,19 +166,23 @@ class DataScheduler:
             logger.error(f"❌ Error updating injuries and suspensions: {e}")
     
     def update_matches_only(self):
-        """Update only match data for all leagues (hourly)"""
+        """Update only match data for all leagues (hourly) with improved error handling"""
         logger.info("Starting hourly match data update")
         
         try:
             for league_key, league_info in LEAGUES.items():
-                league_db = self.db.get_league_by_transfermarkt_id(league_info['transfermarkt_id'])
-                if league_db:
-                    self.update_matches(league_db['id'], league_info)
+                try:
+                    league_db = self.db.get_league_by_transfermarkt_id(league_info['transfermarkt_id'])
+                    if league_db:
+                        self.update_matches(league_db['id'], league_info)
+                except Exception as e:
+                    logger.error(f"❌ Failed to update matches for {league_info['name']}: {e}")
+                    continue
             
             logger.info("Hourly match data update completed successfully")
             
         except Exception as e:
-            logger.error(f"Error in hourly match data update: {e}")
+            logger.error(f"❌ Critical error in hourly match data update: {e}")
     
     def update_league_data(self, league_key, league_info):
         """Update data for a specific league"""
