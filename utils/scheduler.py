@@ -48,6 +48,7 @@ class DataScheduler:
         self.running = True
         
         schedule.every(1).hours.do(self.update_matches_only)
+        schedule.every(5).hours.do(self.update_all_lineup_predictions)
         schedule.every(UPDATE_INTERVAL_HOURS).hours.do(self.update_all_data)
         
         self.scheduler_thread = threading.Thread(target=self._run_scheduler, daemon=True)
@@ -58,6 +59,7 @@ class DataScheduler:
             try:
                 logger.info("🔄 Running delayed initial data update...")
                 self.update_matches_only()
+                self.generate_initial_predictions()
                 logger.info("✅ Delayed initial data update completed")
             except Exception as e:
                 logger.error(f"❌ Delayed initial data update failed: {e}")
@@ -410,7 +412,7 @@ class DataScheduler:
             logger.error(f"Error updating news data for league {league_id}: {e}")
     
     def update_lineup_predictions(self, league_id):
-        """Update lineup predictions for upcoming matches"""
+        """Update lineup predictions for upcoming matches in a specific league"""
         try:
             matches = self.db.get_upcoming_matches(league_id)
             
@@ -429,6 +431,65 @@ class DataScheduler:
             
         except Exception as e:
             logger.error(f"Error updating lineup predictions for league {league_id}: {e}")
+    
+    def update_all_lineup_predictions(self):
+        """Update lineup predictions for all upcoming matches across all leagues (every 5 hours)"""
+        logger.info("🔄 Starting background lineup prediction generation for all leagues...")
+        
+        try:
+            prediction_count = 0
+            
+            for league_key, league_info in LEAGUES.items():
+                try:
+                    league_db = self.db.get_league_by_transfermarkt_id(league_info['transfermarkt_id'])
+                    if not league_db:
+                        logger.warning(f"League not found in database: {league_info['name']}")
+                        continue
+                    
+                    logger.info(f"Generating predictions for {league_info['name']}...")
+                    
+                    matches = self.db.get_next_matchday_matches(league_db['id'])
+                    
+                    for match in matches:
+                        try:
+                            for team_id in [match['home_team_id'], match['away_team_id']]:
+                                existing_prediction = self.db.get_lineup_prediction(match['id'], team_id)
+                                
+                                if not existing_prediction:
+                                    prediction = self.predictor.predict_lineup(match['id'], team_id)
+                                    if prediction:
+                                        prediction_count += 1
+                                        logger.info(f"✅ Generated prediction for team {team_id} in match {match['id']}")
+                                else:
+                                    logger.debug(f"Prediction already exists for team {team_id} in match {match['id']}")
+                            
+                            time.sleep(0.5)
+                            
+                        except Exception as e:
+                            logger.error(f"Error generating prediction for match {match['id']}: {e}")
+                            continue
+                    
+                    time.sleep(2)
+                    
+                except Exception as e:
+                    logger.error(f"Error processing league {league_info['name']}: {e}")
+                    continue
+            
+            logger.info(f"✅ Background prediction generation completed. Generated {prediction_count} new predictions.")
+            
+        except Exception as e:
+            logger.error(f"❌ Critical error in background prediction generation: {e}")
+    
+    def generate_initial_predictions(self):
+        """Generate initial predictions for all upcoming matches (run once at startup)"""
+        logger.info("🚀 Generating initial lineup predictions for all upcoming matches...")
+        
+        try:
+            self.update_all_lineup_predictions()
+            logger.info("✅ Initial prediction generation completed")
+            
+        except Exception as e:
+            logger.error(f"❌ Error in initial prediction generation: {e}")
     
     def _get_or_create_team(self, team_name, league_id, transfermarkt_id):
         """Get existing team or create new one"""
